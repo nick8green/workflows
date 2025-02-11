@@ -1,0 +1,88 @@
+name: Deploy app
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Image to deploy'
+        required: true
+        type: string
+      name:
+        description: 'Name of the container'
+        required: true
+        type: string
+      network:
+        description: 'Network to connect the container to'
+        required: true
+        type: string
+      options:
+        description: 'Additional options to pass to the container on startup'
+        required: false
+        type: string
+      version:
+        default: 'latest'
+        description: 'Version to deploy'
+        type: string
+        required: true
+  workflow_call:
+    inputs:
+      image:
+        required: true
+        type: string
+      name:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+    secrets:
+      host:
+        required: false
+      key:
+        required: false
+      options:
+        required: false
+      network:
+        required: true
+      user:
+        required: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up SSH (default)
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.key || secrets.PRIVATE_KEY }}
+
+      - name: Deploy to VPS
+        env:
+          HOST: ${{ secrets.host || secrets.HOST_IP }}
+          USERNAME: ${{ secrets.user || secrets.HOST_USER }}
+          NETWORK: ${{ secrets.network || inputs.network }}
+          VERSION: ${{ inputs.version }}
+          IMAGE: ${{ inputs.image }}
+          NAME: ${{ inputs.name }}
+          OPTIONS: ${{ secrets.options || inputs.options }}
+        run: |
+          ssh -o StrictHostKeyChecking=no $USERNAME@$HOST << EOF
+
+            # Create Docker network if it doesn't exist
+            docker network create $NETWORK || true
+
+            # Pull the relevant Docker image
+            docker pull $IMAGE:$VERSION
+
+            # Stop and remove any existing container if it exists
+            if [ \$(docker ps -q -f name=$NAME) ]; then
+              docker stop $NAME
+            fi
+
+            if [ \$(docker ps -aq -f name=$NAME) ]; then
+              docker rm $NAME
+            fi
+
+            # Run the container with the required port mapping and environment variables
+            docker run -d --restart=always --name $NAME --network $NETWORK $OPTIONS $IMAGE:$VERSION
+          EOF
