@@ -1,0 +1,80 @@
+name: Deploy app
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Image to deploy'
+        required: true
+        type: string
+      name:
+        description: 'Name of the container'
+        required: true
+        type: string
+      network:
+        description: 'Network to connect the container to'
+        required: true
+        type: string
+      options:
+        description: 'Additional options to pass to the container on startup'
+        required: false
+        type: string
+      version:
+        default: 'latest'
+        description: 'Version to deploy'
+        type: string
+        required: true
+  workflow_call:
+    inputs:
+      image:
+        required: true
+        type: string
+      name:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+    secrets:
+      host:
+        required: false
+      key:
+        required: false
+      options:
+        required: false
+      network:
+        required: true
+      user:
+        required: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.5.1
+        with:
+          ssh-private-key: ${{ secrets.key || secrets.PRIVATE_KEY }}
+
+      - name: Deploy to VPS
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.user || secrets.HOST_USER }}@${{ secrets.host || secrets.HOST_IP }} << EOF
+
+            # Create Docker network if it doesn't exist
+            docker network create ${{ secrets.network || inputs.network }} || true
+
+            # Pull the relevant Docker image
+            docker pull ${{ inputs.image }}:${{ inputs.version }}
+
+            # Stop and remove any existing container if it exists
+            if [ \$(docker ps -q -f name=${{ inputs.name }}) ]; then
+              docker stop ${{ inputs.name }}
+            fi
+
+            if [ \$(docker ps -aq -f name=${{ inputs.name }}) ]; then
+              docker rm ${{ inputs.name }}
+            fi
+
+            # Run the container with the required port mapping and environment variables
+            docker run -d --restart=always --name ${{ inputs.name }} --network ${{ secrets.network || inputs.network }} ${{ secrets.options || inputs.options }} ${{ inputs.image }}:${{ inputs.version }}
+          EOF
