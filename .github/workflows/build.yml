@@ -44,6 +44,8 @@ on:
         required: false
       network:
         required: true
+      token:
+        required: false
       user:
         required: false
 
@@ -60,29 +62,35 @@ jobs:
         env:
           HOST: ${{ secrets.host || secrets.HOST_IP }}
           USERNAME: ${{ secrets.user || secrets.HOST_USER }}
-          NETWORK: ${{ secrets.network || inputs.network }}
-          VERSION: ${{ inputs.version }}
-          IMAGE: ${{ inputs.image }}
-          NAME: ${{ inputs.name }}
-          OPTIONS: ${{ secrets.options || inputs.options }}
+
+          DOCKER_IMAGE: ${{ inputs.image }}
+          DOCKER_NAME: ${{ inputs.name }}
+          DOCKER_NETWORK: ${{ secrets.network || inputs.network }}
+          DOCKER_OPTIONS: ${{ secrets.options || inputs.options }}
+
+          REGISTRY_USER: nick8green
+          REGISTRY_TOKEN: ${{ secrets.token || secrets.GITHUB_TOKEN }}
+          DOCKER_VERSION: ${{ inputs.version }}
         run: |
           ssh -o StrictHostKeyChecking=no $USERNAME@$HOST << EOF
+            # Login to container registry
+            docker login ghcr.io -u $REGISTRY_USER -p $REGISTRY_TOKEN
 
             # Create Docker network if it doesn't exist
-            docker network create $NETWORK || true
+            docker network create $DOCKER_NETWORK || true
 
             # Pull the relevant Docker image
-            docker pull $IMAGE:$VERSION
+            docker pull $DOCKER_IMAGE:$DOCKER_VERSION
 
             # Stop and remove any existing container if it exists
-            if [ \$(docker ps -q -f name=$NAME) ]; then
-              docker stop $NAME
+            if [ \$(docker ps -q -f name=$DOCKER_NAME) ]; then
+              docker stop $DOCKER_NAME
             fi
 
-            if [ \$(docker ps -aq -f name=$NAME) ]; then
-              docker rm $NAME
+            if [ \$(docker ps -aq -f name=$DOCKER_NAME) ]; then
+              docker rm $DOCKER_NAME
             fi
 
             # Run the container with the required port mapping and environment variables
-            docker run -d --restart=always --name $NAME --network $NETWORK $OPTIONS $IMAGE:$VERSION
+            docker run -d --restart=always --name $DOCKER_NAME --network $DOCKER_NETWORK $DOCKER_OPTIONS $DOCKER_IMAGE:$DOCKER_VERSION
           EOF
