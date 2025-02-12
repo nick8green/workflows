@@ -1,5 +1,5 @@
-name: Setup Node.js
-description: Sets up Node.js for the workflow and caches dependencies
+name: 'Setup Node.js'
+description: 'Sets up Node.js for the workflow and caches dependencies'
 
 inputs:
   version:

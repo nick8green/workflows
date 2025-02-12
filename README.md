@@ -19,16 +19,11 @@ Used to deploy docker containers to a VPS.
 ### Usage
 
 ```
-name: 
-
-on:
-  push:
-    branches:
-      - release
+[...]
 
 jobs:
   deploy:
-    uses: nick8green/workflows/.github/workflows/deploy.yml@main
+    uses: nick8green/workflows/.github/workflows/docker-deploy.yml@main
     with:
       image: alpine
       name: demo-container
@@ -36,4 +31,32 @@ jobs:
     secrets:
       network: ${{ secrets.DOCKER_NETWORK }}
       options: "-v /tmp:/data"
+```
+
+## Node Setup
+
+Initilises and then installs dependencies. If the dependencies are already cached then they are pulled from the cache rather than doing a fresh install.
+
+### Arguments
+
+- **version** _`string`_ - The version of node to utilise.
+
+### Usage
+
+```
+[...]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: nick8green/workflows/actions/node-setup.yml@main
+        with:
+          version: 22
+
+[...]
 ```
