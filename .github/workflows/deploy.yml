@@ -93,4 +93,7 @@ jobs:
 
             # Run the container with the required port mapping and environment variables
             docker run -d --restart=always --name $DOCKER_NAME --network $DOCKER_NETWORK $DOCKER_OPTIONS $DOCKER_IMAGE:$DOCKER_VERSION
+
+            # Clean up
+            rm ~/.docker/config.json
           EOF
