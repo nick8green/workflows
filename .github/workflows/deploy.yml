@@ -74,7 +74,7 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no $USERNAME@$HOST << EOF
             # Login to container registry
-            docker login ghcr.io -u $REGISTRY_USER -p $REGISTRY_TOKEN
+            echo $REGISTRY_TOKEN | docker login ghcr.io -u $REGISTRY_USER --password-stdin
 
             # Create Docker network if it doesn't exist
             docker network create $DOCKER_NETWORK || true
