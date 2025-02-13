@@ -11,7 +11,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup workspace 🧱
-        uses: nick8green/workflows/actions/node-setup.yml@main
+        uses: nick8green/workflows/actions/node/setup@main
 
       - name: Lint code 🔍
         run: npm run lint

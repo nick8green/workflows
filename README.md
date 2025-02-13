@@ -97,7 +97,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Node
-        uses: nick8green/workflows/actions/node-setup.yml@main
+        uses: nick8green/workflows/actions/node/setup/action.yml@main
         with:
           version: 22
 

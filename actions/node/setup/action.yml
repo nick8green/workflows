@@ -5,15 +5,12 @@ inputs:
   version:
     description: 'Version of Node.js to use'
     required: false
-    type: string
-
-env:
-  DEFAULT_NODE_VERSION: 22.x
 
 runs:
-  uses: "composite"
+  using: "composite"
   steps:
     - name: Get version 🧮
+      shell: bash
       id: get-version
       run: |
         if [ -f ".nvmrc" ]; then
@@ -21,9 +18,9 @@ runs:
         elif [ -z "${{ inputs.version }}" ]; then
           NODE_VERSION=${{ inputs.version }}
         else
-          NODE_VERSION=$DEFAULT_NODE_VERSION
+          NODE_VERSION=22.x
         fi
-        echo ::set-output name=version::$NODE_VERSION
+        echo "version=$NODE_VERSION" >> $GITHUB_OUTPUT
 
     - name: Setup Node.js ⚙️
       uses: actions/setup-node@v4
