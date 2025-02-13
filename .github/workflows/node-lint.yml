@@ -1,0 +1,17 @@
+name: Run unit tests
+
+on:
+  workflow_call:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code 🛎️
+        uses: actions/checkout@v4
+
+      - name: Setup workspace 🧱
+        uses: nick8green/workflows/actions/node-setup.yml@main
+
+      - name: Lint code 🔍
+        run: npm run lint
