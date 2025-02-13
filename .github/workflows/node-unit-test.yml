@@ -1,0 +1,25 @@
+name: Run unit tests
+
+on:
+  workflow_call:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code 🛎️
+        uses: actions/checkout@v4
+
+      - name: Setup workspace 🧱
+        uses: nick8green/workflows/actions/node-setup.yml@main
+
+      - name: Run tests 🧪
+        run: npm test
+
+      - name: Archieve results 🗂️
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: unit-test-coverage
+          path: coverage/
+          retention-days: 30

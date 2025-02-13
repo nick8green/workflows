@@ -4,17 +4,31 @@ description: 'Sets up Node.js for the workflow and caches dependencies'
 inputs:
   version:
     description: 'Version of Node.js to use'
-    required: true
+    required: false
     type: string
-    default: '22'
+
+env:
+  DEFAULT_NODE_VERSION: 22.x
 
 runs:
   uses: "composite"
   steps:
+    - name: Get version 🧮
+      id: get-version
+      run: |
+        if [ -f ".nvmrc" ]; then
+          NODE_VERSION=$(cat .nvmrc | sed -E 's/^v?//g;t')
+        elif [ -z "${{ inputs.version }}" ]; then
+          NODE_VERSION=${{ inputs.version }}
+        else
+          NODE_VERSION=$DEFAULT_NODE_VERSION
+        fi
+        echo ::set-output name=version::$NODE_VERSION
+
     - name: Setup Node.js ⚙️
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ inputs.version }}
+        node-version: ${{ steps.get-version.outputs.version }}
 
     - name: Cache dependencies 📦
       id: cache-deps
