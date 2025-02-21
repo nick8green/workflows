@@ -5,18 +5,19 @@ on:
 
 jobs:
   deploy:
+    name: ⚗️ Run unit tests
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code 🛎️
+      - name: 🛎️ Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup workspace 🧱
+      - name: 🧱 Setup workspace
         uses: nick8green/workflows/actions/node/setup@main
 
-      - name: Run tests 🧪
+      - name: 🧪 Run tests
         run: npm test
 
-      - name: Archieve results 🗂️
+      - name: 🗂️ Archieve results
         uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
