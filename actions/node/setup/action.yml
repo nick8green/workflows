@@ -1,4 +1,4 @@
-name: "Setup Node.js"
+name: "setup node.js"
 description: "Sets up Node.js for the workflow and caches dependencies"
 
 inputs:
@@ -13,7 +13,7 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: 🧮 Get version
+    - name: 🧮 get version
       shell: bash
       id: get-version
       run: |
@@ -26,20 +26,20 @@ runs:
         fi
         echo "version=$NODE_VERSION" >> $GITHUB_OUTPUT
 
-    - name: ⚙️ Setup Node.js
+    - name: ⚙️ setup node.js
       uses: actions/setup-node@v4
       with:
         node-version: ${{ steps.get-version.outputs.version }}
         registry-url: ${{ inputs.registry }}
 
-    - name: 📦 Cache dependencies
+    - name: 📦 cache dependencies
       id: cache-deps
       uses: actions/cache@v3
       with:
         path: node_modules
         key: node-modules-${{ hashFiles('package-lock.json') }}
 
-    - name: 📥 Install dependencies
+    - name: 📥 install dependencies
       shell: bash
       if: steps.cache-deps.outputs.cache-hit != 'true'
       run: npm ci

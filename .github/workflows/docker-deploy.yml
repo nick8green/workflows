@@ -1,4 +1,4 @@
-name: Deploy docker app
+name: deploy docker app
 
 on:
   workflow_dispatch:
@@ -51,15 +51,15 @@ on:
 
 jobs:
   deploy:
-    name: 🚀 Deploy image
+    name: 🚀 deploy image
     runs-on: ubuntu-latest
     steps:
-      - name: Set up SSH
+      - name: set up ssh
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.key || secrets.PRIVATE_KEY }}
 
-      - name: Deploy to VPS
+      - name: deploy to vps
         env:
           HOST: ${{ secrets.host || secrets.HOST_IP }}
           USERNAME: ${{ secrets.user || secrets.HOST_USER }}

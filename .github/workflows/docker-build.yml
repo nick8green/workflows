@@ -27,10 +27,6 @@ on:
         description: 'Registry to push to'
         required: false
         type: string
-      password:
-        description: 'Password for the registry'
-        required: false
-        type: string
       platform:
         default: 'linux/arm64,linux/amd64'
         description: 'Platform(s) to build for'
@@ -41,6 +37,11 @@ on:
         description: 'Push to registry'
         required: false
         type: boolean
+      tag:
+        default: ${{ github.head_ref || github.ref_name }}
+        description: 'Tag for the image'
+        required: false
+        type: string
       timeout:
         default: 10
         description: 'Timeout in minutes'
@@ -51,20 +52,17 @@ on:
         description: 'Username for the registry'
         required: false
         type: string
-
-env:
-  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-
-permissions:
-  contents: read
-  packages: write
+    secrets:
+      password:
+        description: 'Password for the registry'
+        required: true
 
 jobs:
   docker:
-    name: 🏗️ Build and publish image
+    name: 🏗️ build and publish image
     outputs:
-      image: ${{ steps.vars.outputs.image }}
-      tag: ${{ steps.vars.outputs.tag }}
+      image: ${{ steps.meta.outputs.labels }}
+      tag: ${{ steps.meta.outputs.tags }}
     runs-on: ubuntu-latest
     steps:
       - name: 🛎️ checkout code
@@ -72,12 +70,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 🏷️ set tag
-        id: vars
-        # run: echo "tag=$(git describe --tags)" >> $GITHUB_OUTPUT
-        run: |
-          echo "tag=${{ env.BRANCH_NAME }}" >> $GITHUB_OUTPUT
-          echo "image=ghcr.io/${{ inputs.reference }}" >> $GITHUB_OUTPUT
+      - name: 📋 docker meta data
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # list of Docker images to use as base name for tags
+          images: |
+            ${{ inputs.registry }}/${{ inputs.reference }}
+          # generate Docker tags based on the following events/attributes
+          tags: |
+            type=schedule
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
 
       - name: 🧱 set up qemu
         uses: docker/setup-qemu-action@v3
@@ -90,7 +98,7 @@ jobs:
         with:
           registry: ${{ inputs.registry }}
           username: ${{ inputs.user }}
-          password: ${{ inputs.password || secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.password }}
 
       - uses: actions/cache@v4
         with:
@@ -107,12 +115,12 @@ jobs:
           cache-to: type=local,dest=/tmp/.buildx-cache-new
           context: ${{ inputs.context }}
           file: ${{ inputs.file }}
+          labels: ${{ steps.meta.outputs.labels }}
           platforms: ${{ inputs.platform }}
           provenance: false
           push: ${{ inputs.push }}
           sbom: false
-          tags: |
-            ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.tag }}
+          tags: ${{ steps.meta.outputs.tags }}
 
       # - name: 🏷️ tag release image
       #   if: ${{ env.BRANCH_NAME == 'release' }}
@@ -122,7 +130,9 @@ jobs:
       #   if: ${{ env.BRANCH_NAME == 'main' }}
       #   run: docker tag ghcr.io/${{ github.repository }}:${{ env.BRANCH_NAME }} ghcr.io/${{ github.repository }}:latest
 
-      - run: mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+      - run: |
+          rsync -a --remove-source-files /tmp/.buildx-cache-new/ /tmp/.buildx-cache/
+          rm -rf /tmp/.buildx-cache-new
     timeout-minutes: ${{ inputs.timeout }}
 
 # Supported platforms:
