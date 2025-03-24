@@ -1,0 +1,87 @@
+name: cleanup old GHCR images
+on:
+  workflow_call:
+    inputs:
+      days:
+        default: 30
+        description: 'Days to keep images'
+        required: false
+        type: number
+      pattern:
+        default: ''
+        description: 'Pattern to match images'
+        required: false
+        type: string
+    secrets:
+      token:
+        required: true
+
+jobs:
+  cleanup:
+    env:
+      REPO: ${{ github.repository }}
+      TOKEN: ${{ secrets.token }}
+      USERNAME: ${{ github.actor}}
+      DAYS_THRESHOLD: ${{ inputs.days }}
+      REGEX_PATTERN: "^${{ inputs.pattern }}.*"
+    runs-on: ubuntu-latest
+    steps:
+      - name: process images
+        run: |
+          # Get all container images
+          IMAGES=$(curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://api.github.com/user/packages?package_type=container" | jq -r '.[].name')
+
+          for IMAGE in $IMAGES; do
+            if [[ ! $IMAGE =~ $REGEX_PATTERN ]]; then
+              echo "skipping $IMAGE (does not match regex)"
+              continue
+            fi
+
+            echo "processing $IMAGE"
+
+            ENCODED_IMAGE=$(echo "$IMAGE" | sed 's/\//%2F/g')
+
+            # Get all versions
+            VERSIONS=$(curl -s -H "Authorization: Bearer $TOKEN" \
+              "https://api.github.com/user/packages/container/$ENCODED_IMAGE/versions" | jq -c '.[]')
+
+            echo "$VERSIONS" | while read -r VERSION; do
+              ID=$(echo "$VERSION" | jq -r '.id')
+              echo "processing version $ID"
+              TAGS=$(echo "$VERSION" | jq -r '.metadata.container.tags | @csv')
+
+              if [[ "$TAGS" != "" && "$TAGS" != "null" ]]; then
+                echo "skipping deletion of version $ID (it has tags: $TAGS)"
+                continue
+              fi
+
+              LAST_PULL=$(echo $VERSION | jq -r '.last_downloaded_at')
+              CREATED_AT=$(echo $VERSION | jq -r '.created_at')
+              UPDATED_AT=$(echo $VERSION | jq -r '.updated_at')
+
+              # Convert to timestamp
+              if [[ "$OSTYPE" == "darwin"* ]]; then
+                # macOS (BSD date)
+                LAST_PULL_TS=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$LAST_PULL" "+%s" 2>/dev/null || echo 0)
+                UPDATED_TS=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$UPDATED_AT" "+%s")
+              else
+                # Linux (GNU date)
+                LAST_PULL_TS=$(date -d "$LAST_PULL" +%s 2>/dev/null || echo 0)
+                UPDATED_TS=$(date -d "$UPDATED_AT" +%s)
+              fi
+
+              # Current time
+              NOW=$(date +%s)
+              DAYS_AGO=$(( NOW - $DAYS_THRESHOLD * 24 * 3600 ))
+
+              # Check if it's older than 30 days and never pulled or not pulled recently
+              if [[ "$LAST_PULL_TS" -eq 0 && "$UPDATED_TS" -lt "$DAYS_AGO" ]]; then
+                echo "deleting $IMAGE version $ID (never pulled, older than $DAYS_THRESHOLD days)"
+                curl -X DELETE -H "Authorization: Bearer $TOKEN" \
+                  "https://api.github.com/user/packages/container/$ENCODED_IMAGE/versions/$ID"
+              else
+                echo "skipping deletion of $IMAGE version $ID (last pull: $LAST_PULL, created: $CREATED_AT, updated: $UPDATED_AT)"
+              fi
+            done
+          done
