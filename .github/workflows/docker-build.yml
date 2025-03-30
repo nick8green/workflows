@@ -38,7 +38,6 @@ on:
         required: false
         type: boolean
       tag:
-        default: ${{ github.head_ref || github.ref_name }}
         description: 'Tag for the image'
         required: false
         type: string
@@ -56,6 +55,9 @@ on:
       password:
         description: 'Password for the registry'
         required: true
+      secrets:
+        description: 'Secrets for the registry'
+        required: false
 
 jobs:
   docker:
@@ -86,6 +88,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}.{{patch}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            ${{ inputs.tag && format('type=raw,value={0}', inputs.tag) || '' }}
 
       - name: 🧱 set up qemu
         uses: docker/setup-qemu-action@v3
@@ -120,6 +123,7 @@ jobs:
           provenance: false
           push: ${{ inputs.push }}
           sbom: false
+          secrets: ${{ secrets.secrets }}
           tags: ${{ steps.meta.outputs.tags }}
 
       # - name: 🏷️ tag release image
