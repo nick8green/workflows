@@ -14,8 +14,36 @@ jobs:
       - name: 🧱 setup workspace
         uses: nick8green/workflows/actions/node/setup@main
 
+      - name: 🧰 detect package manager
+        id: detect-pm
+        shell: bash
+        run: |
+          if [ -f "pnpm-lock.yaml" ]; then
+            PM=pnpm
+          elif [ -f "yarn.lock" ]; then
+            PM=yarn
+          elif [ -f "package-lock.json" ]; then
+            PM=npm
+          else
+            echo "No known lockfile found. Cannot determine package manager." >&2
+            exit 1
+          fi
+          echo "manager=$PM" >> "$GITHUB_OUTPUT"
+
       - name: 🧪 run tests
-        run: npm test
+        shell: bash
+        run: |
+          case "${{ steps.detect-pm.outputs.manager }}" in
+            pnpm)
+              pnpm test
+              ;;
+            yarn)
+              yarn test
+              ;;
+            npm)
+              npm test
+              ;;
+          esac
 
       - name: 🗂️ archieve results
         uses: actions/upload-artifact@v4
