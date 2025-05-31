@@ -55,8 +55,8 @@ on:
       password:
         description: 'Password for the registry'
         required: true
-      secrets:
-        description: 'Secrets for the registry'
+      token:
+        description: 'GitHub token in case the image wants it'
         required: false
 
 jobs:
@@ -123,7 +123,8 @@ jobs:
           provenance: false
           push: ${{ inputs.push }}
           sbom: false
-          secrets: ${{ secrets.secrets }}
+          secrets: |
+            GH_TOKEN=${{ secrets.token }}
           tags: ${{ steps.meta.outputs.tags }}
 
       # - name: 🏷️ tag release image
