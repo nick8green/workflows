@@ -6,9 +6,12 @@ inputs:
     description: "Version of Node.js to use"
     required: false
   registry:
-    default: ""
+    default: "npm.pkg.github.com"
     description: "URL of the npm registry to use"
     required: false
+  token:
+    description: "GitHub token with access to the npm registry"
+    required: true
 
 runs:
   using: "composite"
@@ -32,6 +35,14 @@ runs:
         node-version: ${{ steps.get-version.outputs.version }}
         registry-url: ${{ inputs.registry }}
 
+    - name: 🔓 auth with npm
+      if: ${{ inputs.token != '' }}
+      shell: bash
+      run: |
+        echo "@nick8green:registry=https://npm.pkg.github.com" >> ~/.npmrc
+        echo "//${{ inputs.registry }}/:_authToken=${{ inputs.token }}" >> $HOME/.npmrc
+        echo "always-auth=true" >> $HOME/.npmrc
+
     - name: 🧰 detect package manager
       id: detect-pm
       shell: bash
@@ -40,6 +51,7 @@ runs:
           PM=pnpm
         elif [ -f "yarn.lock" ]; then
           PM=yarn
+          corepack enable
         elif [ -f "package-lock.json" ]; then
           PM=npm
         else
@@ -64,6 +76,9 @@ runs:
           ~/.pnpm-store
           node_modules
         key: ${{ runner.os }}-deps-${{ steps.detect-pm.outputs.manager }}-${{ hashFiles('**/pnpm-lock.yaml', '**/yarn.lock', '**/package-lock.json') }}
+
+    - run: echo "${{ inputs.registry }}/:_authToken=${{ inputs.token }}" >> .npmrc
+      shell: bash
 
     - name: 📥 install dependencies
       shell: bash

@@ -2,6 +2,10 @@ name: run unit tests
 
 on:
   workflow_call:
+    secrets:
+      GH_TOKEN:
+        description: 'GitHub token with access to the npm registry'
+        required: true
 
 jobs:
   deploy:
@@ -13,6 +17,8 @@ jobs:
 
       - name: 🧱 setup workspace
         uses: nick8green/workflows/actions/node/setup@main
+        with:
+          token: ${{ secrets.GH_TOKEN }}
 
       - name: 🧰 detect package manager
         id: detect-pm

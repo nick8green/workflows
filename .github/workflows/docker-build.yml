@@ -32,6 +32,12 @@ on:
         description: 'Platform(s) to build for'
         required: false
         type: string
+# Supported platforms:
+#   - linux/amd64
+#   - linux/arm/v7
+#   - linux/arm64/v8
+#   - linux/ppc64le
+#   - linux/s390x
       push:
         default: true
         description: 'Push to registry'
@@ -57,6 +63,9 @@ on:
         required: true
       token:
         description: 'GitHub token in case the image wants it'
+        required: false
+      snyk:
+        description: 'Snyk token for vulnerability scanning'
         required: false
 
 jobs:
@@ -140,9 +149,35 @@ jobs:
           rm -rf /tmp/.buildx-cache-new
     timeout-minutes: ${{ inputs.timeout }}
 
-# Supported platforms:
-#   - linux/amd64
-#   - linux/arm/v7
-#   - linux/arm64/v8
-#   - linux/ppc64le
-#   - linux/s390x
+  security:
+    runs-on: ubuntu-latest
+    needs: docker
+    if: ${{ inputs.push && inputs.registry == 'ghcr.io' }}
+    name: 🔍 check image for vulnerabilities
+    steps:
+      - name: 🛎️ checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔒 Check if SNYK_TOKEN is set
+        if: ${{ env.SNYK_TOKEN != '' }}
+        run: echo "SNYK_TOKEN is available"
+        env:
+          SNYK_TOKEN: ${{ secrets.snyk }}
+
+      - name: 🕵 Run Snyk to check Docker image for vulnerabilities
+        if: ${{ env.SNYK_TOKEN != '' }}
+        # continue-on-error: true
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.snyk }}
+        with:
+          image: ${{ inputs.registry }}/${{ inputs.reference }}
+          args: --file=${{ inputs.file }}
+
+      - name: 💾 Upload result to GitHub Code Scanning
+        if: ${{ env.SNYK_TOKEN != '' }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk.sarif
