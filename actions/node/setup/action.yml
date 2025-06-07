@@ -40,6 +40,7 @@ runs:
           PM=pnpm
         elif [ -f "yarn.lock" ]; then
           PM=yarn
+          corepack enable
         elif [ -f "package-lock.json" ]; then
           PM=npm
         else
