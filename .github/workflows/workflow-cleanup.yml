@@ -1,0 +1,54 @@
+name: cleanup old GHCR images
+on:
+  workflow_call:
+    inputs:
+      keep-successful:
+        default: 10
+        description: "how many successful runs to keep"
+        required: false
+        type: number
+    secrets:
+      token:
+        required: true
+
+jobs:
+  cleanup:
+    env:
+      KEEP: ${{ inputs.keep-successful }}
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.token }}
+    name: 🧹 clean up workflow runs
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🗑️ Delete old workflow runs
+        run: |
+          WORKFLOWS=$(gh api repos/nick8green/adequate/actions/workflows --paginate -q '.workflows[] | {id: .id, name: .name}')
+
+          echo "$IMAGES" | jq -c '.' | while read -r image; do
+            ID=$(echo "$image" | jq -r '.id')
+            NAME=$(echo "$image" | jq -r '.tags[]')
+
+            echo "Processing workflow: $NAME (ID: $ID)"
+
+            echo "Checking workflow ID $ID..."
+            # Delete failed runs
+            RUNS=$(gh api repos/$REPO/actions/workflows/$ID/runs --paginate -q '.workflow_runs[] | select(.conclusion != "success") | .id')
+            for run_id in $RUNS; do
+              echo "Deleting failed run: $run_id"
+              gh api --method DELETE repos/$REPO/actions/runs/$run_id
+            done
+
+            # Keep only latest successful
+            SUCCESS_RUNS=$(gh api repos/$REPO/actions/workflows/$ID/runs?status=success --paginate -q '.workflow_runs[].id')
+            COUNT=0
+            for run_id in $SUCCESS_RUNS; do
+              COUNT=$((COUNT+1))
+              if [ $COUNT -gt $KEEP ]; then
+                echo "Deleting old successful run: $run_id"
+                gh api --method DELETE repos/$REPO/actions/runs/$run_id
+              fi
+            done
+          done

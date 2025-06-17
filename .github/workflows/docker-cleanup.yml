@@ -9,7 +9,7 @@ on:
         type: number
       pattern:
         default: ''
-        description: 'Pattern to match images'
+        description: 'Pattern to match tags against'
         required: false
         type: string
     secrets:
@@ -20,68 +20,80 @@ jobs:
   cleanup:
     env:
       REPO: ${{ github.repository }}
-      TOKEN: ${{ secrets.token }}
-      USERNAME: ${{ github.actor}}
-      DAYS_THRESHOLD: ${{ inputs.days }}
-      REGEX_PATTERN: "^${{ inputs.pattern }}.*"
+      GH_TOKEN: ${{ secrets.token }}
+      OWNER: ${{ github.actor}}
+      KEEP_DAYS: ${{ inputs.days }}
     runs-on: ubuntu-latest
     steps:
       - name: process images
         run: |
-          # Get all container images
-          IMAGES=$(curl -s -H "Authorization: Bearer $TOKEN" \
-            "https://api.github.com/user/packages?package_type=container" | jq -r '.[].name')
+          # Determine if user or org
+          OWNER_TYPE=$(gh api "repos/$REPO" -q '.owner.type')
 
-          for IMAGE in $IMAGES; do
-            if [[ ! $IMAGE =~ $REGEX_PATTERN ]]; then
-              echo "skipping $IMAGE (does not match regex)"
+          # Determine API base
+          if [[ "$OWNER_TYPE" == "Organization" ]]; then
+            PACKAGE_LIST_ENDPOINT="orgs/$OWNER/packages?package_type=container"
+            PACKAGE_VERSIONS_ENDPOINT="orgs/$OWNER/packages/container"
+          else
+            PACKAGE_LIST_ENDPOINT="users/$OWNER/packages?package_type=container"
+            PACKAGE_VERSIONS_ENDPOINT="users/$OWNER/packages/container"
+          fi
+
+          # Get all container packages
+          REPO_NAME=$(basename "$REPO")
+          ALL_PACKAGES=$(gh api "$PACKAGE_LIST_ENDPOINT" -q '.[].name')
+          PACKAGES=$(echo "$ALL_PACKAGES" | grep "$REPO_NAME" || true)
+
+          if [ -z "$PACKAGES" ]; then
+            echo "No packages found matching '$REPO_NAME'"
+            exit 0
+          fi
+
+          cutoff_date=$(date -d "-$KEEP_DAYS days" +%s)
+
+          for PACKAGE_NAME in $PACKAGES; do
+            echo "🧼 Checking package: $PACKAGE_NAME"
+
+            ENCODED_PACKAGE_NAME=$(jq -rn --arg pkg "$PACKAGE_NAME" '$pkg|@uri')
+
+            VERSIONS=$(gh api "$PACKAGE_VERSIONS_ENDPOINT/$ENCODED_PACKAGE_NAME/versions" --paginate \
+                      -q '.[] | {id: .id, tags: .metadata.container.tags, created: .created_at}')
+
+            if [ -z "$VERSIONS" ]; then
+              echo "No versions found for package $PACKAGE_NAME"
               continue
             fi
+            echo "Found versions for $PACKAGE_NAME: $(echo "$VERSIONS" | jq -r '.id')"
 
-            echo "processing $IMAGE"
+            echo "$VERSIONS" | jq -c '.' | while read -r image; do
+              ID=$(echo "$image" | jq -r '.id')
+              CREATED=$(date --date="$(echo "$image" | jq -r '.created')" +%s)
+              TAGS=$(echo "$image" | jq -r '.tags[]' 2>/dev/null || true)
 
-            ENCODED_IMAGE=$(echo "$IMAGE" | sed 's/\//%2F/g')
+              # Default keep if nothing breaks
+              should_delete=true
 
-            # Get all versions
-            VERSIONS=$(curl -s -H "Authorization: Bearer $TOKEN" \
-              "https://api.github.com/user/packages/container/$ENCODED_IMAGE/versions" | jq -c '.[]')
+              for TAG in $TAGS; do
+                if [[ "$TAG" == "latest" ]]; then
+                  echo "↩️ Skipping latest tag"
+                  should_delete=false
+                  break
+                fi
 
-            echo "$VERSIONS" | while read -r VERSION; do
-              ID=$(echo "$VERSION" | jq -r '.id')
-              echo "processing version $ID"
-              TAGS=$(echo "$VERSION" | jq -r '.metadata.container.tags | @csv')
+                if [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                  echo "✅ Semver tag $TAG — keeping"
+                  should_delete=false
+                  break
+                fi
+              done
 
-              if [[ "$TAGS" != "" && "$TAGS" != "null" ]]; then
-                echo "skipping deletion of version $ID (it has tags: $TAGS)"
-                continue
-              fi
+              if $should_delete && [ "$CREATED" -lt "$cutoff_date" ]; then
+                echo "🗑️ Deleting version $ID (tags: $TAGS)"
+                gh api --method DELETE "$PACKAGE_VERSIONS_ENDPOINT/$ENCODED_PACKAGE_NAME/versions/$ID" || \
+                  echo "⚠️ Failed to delete version $ID (might already be deleted or inaccessible)"
 
-              LAST_PULL=$(echo $VERSION | jq -r '.last_downloaded_at')
-              CREATED_AT=$(echo $VERSION | jq -r '.created_at')
-              UPDATED_AT=$(echo $VERSION | jq -r '.updated_at')
-
-              # Convert to timestamp
-              if [[ "$OSTYPE" == "darwin"* ]]; then
-                # macOS (BSD date)
-                LAST_PULL_TS=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$LAST_PULL" "+%s" 2>/dev/null || echo 0)
-                UPDATED_TS=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$UPDATED_AT" "+%s")
               else
-                # Linux (GNU date)
-                LAST_PULL_TS=$(date -d "$LAST_PULL" +%s 2>/dev/null || echo 0)
-                UPDATED_TS=$(date -d "$UPDATED_AT" +%s)
-              fi
-
-              # Current time
-              NOW=$(date +%s)
-              DAYS_AGO=$(( NOW - $DAYS_THRESHOLD * 24 * 3600 ))
-
-              # Check if it's older than 30 days and never pulled or not pulled recently
-              if [[ "$LAST_PULL_TS" -eq 0 && "$UPDATED_TS" -lt "$DAYS_AGO" ]]; then
-                echo "deleting $IMAGE version $ID (never pulled, older than $DAYS_THRESHOLD days)"
-                curl -X DELETE -H "Authorization: Bearer $TOKEN" \
-                  "https://api.github.com/user/packages/container/$ENCODED_IMAGE/versions/$ID"
-              else
-                echo "skipping deletion of $IMAGE version $ID (last pull: $LAST_PULL, created: $CREATED_AT, updated: $UPDATED_AT)"
+                echo "📦 Keeping recent or protected version (ID: $ID)"
               fi
             done
           done
