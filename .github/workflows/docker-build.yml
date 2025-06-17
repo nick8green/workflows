@@ -120,6 +120,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             ${{ inputs.tag && format('type=raw,value={0}', inputs.tag) || '' }}
+            type=raw,value=cache
 
       - name: 🧱 set up qemu
         uses: docker/setup-qemu-action@v3
@@ -140,6 +141,8 @@ jobs:
           build-args: ${{ inputs.args }}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
+          # cache-from: type=registry,ref=${{ inputs.registry }}/${{ inputs.reference }}:cache
+          # cache-to: type=inline
           context: ${{ inputs.context }}
           file: ${{ inputs.file }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -164,33 +167,50 @@ jobs:
           rm -rf /tmp/.buildx-cache-new
     timeout-minutes: ${{ inputs.timeout }}
 
-  scount:
-    runs-on: ubuntu-latest
-    needs: docker
-    steps:
-      - name: Authenticate to Docker
-        if: ${{ env.DOCKER_TOKEN != '' }}
-        uses: docker/login-action@v3
-        with:
-          username: nick8green
-          password: ${{ env.DOCKER_TOKEN }}
-        env:
-          DOCKER_TOKEN: ${{ secrets.docker }}
+  # scount:
+  #   runs-on: ubuntu-latest
+  #   needs: docker
+  #   steps:
+  #     - name: Authenticate to Docker
+  #       if: ${{ env.DOCKER_TOKEN != '' }}
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: nick8green
+  #         password: ${{ env.DOCKER_TOKEN }}
+  #       env:
+  #         DOCKER_TOKEN: ${{ secrets.docker }}
 
-      # Compare the image built in the pull request with the one in production
-      - name: Docker Scout
-        id: docker-scout
-        if: ${{ env.DOCKER_TOKEN != '' }}
-        uses: docker/scout-action@v1
-        with:
-          command: compare
-          image: ${{ needs.docker.outputs.tag }}
-          to-env: production
-          ignore-unchanged: true
-          # only-severities: critical,high
-          github-token: ${{ secrets.password }}
-        env:
-          DOCKER_TOKEN: ${{ secrets.docker }}
+  #     # Compare the image built in the pull request with the one in production
+  #     - name: 🏷️ determine image tag
+  #       id: tag
+  #       run: |
+  #         selected_tag=$(echo "$tags_string" \
+  #         | grep -v 'app:cache' \
+  #         | awk -F ':' '
+  #             $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ { print "1:" $0; next }
+  #             $2 == "latest" { print "2:" $0; next }
+  #             { print "3:" $0 }
+  #           ' \
+  #         | sort \
+  #         | cut -d':' -f2- \
+  #         | head -n1)
+
+  #         echo "Selected tag: $selected_tag"
+  #         echo "tag=$selected_tag" >> "$GITHUB_OUTPUT"
+
+  #     - name: Docker Scout
+  #       id: docker-scout
+  #       if: ${{ env.DOCKER_TOKEN != '' }}
+  #       uses: docker/scout-action@v1
+  #       with:
+  #         command: compare
+  #         image: ${{ steps.tag.outputs.tag }}
+  #         to-env: production
+  #         ignore-unchanged: true
+  #         # only-severities: critical,high
+  #         github-token: ${{ secrets.password }}
+  #       env:
+  #         DOCKER_TOKEN: ${{ secrets.docker }}
 
   security:
     runs-on: ubuntu-latest

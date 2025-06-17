@@ -32,6 +32,9 @@ on:
       name:
         required: true
         type: string
+      options:
+        required: false
+        type: string
       version:
         required: true
         type: string
@@ -39,8 +42,6 @@ on:
       host:
         required: false
       key:
-        required: false
-      options:
         required: false
       network:
         required: true
@@ -67,7 +68,7 @@ jobs:
           DOCKER_IMAGE: ${{ inputs.image }}
           DOCKER_NAME: ${{ inputs.name }}
           DOCKER_NETWORK: ${{ secrets.network || inputs.network }}
-          DOCKER_OPTIONS: ${{ secrets.options || inputs.options }}
+          DOCKER_OPTIONS: ${{ inputs.options }}
 
           REGISTRY_USER: nick8green
           REGISTRY_TOKEN: ${{ secrets.token || secrets.GITHUB_TOKEN }}
