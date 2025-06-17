@@ -3,10 +3,10 @@ on:
   workflow_call:
     inputs:
       days:
-        default: 30
+        default: '30'
         description: 'Days to keep images'
         required: false
-        type: number
+        type: string
       pattern:
         default: ''
         description: 'Pattern to match tags against'
