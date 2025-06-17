@@ -98,6 +98,18 @@ jobs:
           # list of Docker images to use as base name for tags
           images: |
             ${{ inputs.registry }}/${{ inputs.reference }}
+          # list of labels to apply to the image
+          labels: |
+            org.opencontainers.image.authors=${{ inputs.user }}
+            org.opencontainers.image.created=${{ github.event.repository.created_at }}
+            org.opencontainers.image.description=${{ inputs.reference }} image from ${{ github.repository }} by ${{ github.actor }}
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.vendor=GitHub Actions
           # generate Docker tags based on the following events/attributes
           tags: |
             type=schedule
