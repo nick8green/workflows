@@ -81,6 +81,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: 🧱 Maximize build space
+        uses: easimon/maximize-build-space@v10
+        with:
+          root-reserve-mb: 2048
+          swap-size-mb: 1024
+          remove-dotnet: true
+          remove-android: true
+          remove-haskell: true
+          remove-codeql: true
+
       - name: 🔑 login to docker hub
         uses: docker/login-action@v3
         with:
@@ -118,9 +128,6 @@ jobs:
             type=semver,pattern={{major}}
             ${{ inputs.tag && format('type=raw,value={0}', inputs.tag) || '' }}
 
-      - run: |
-          echo "Building with tags: ${{ steps.meta.outputs.tags }}"
-
       - name: 🧱 set up qemu
         uses: docker/setup-qemu-action@v3
 
@@ -134,17 +141,26 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-docker-
 
+      - name: 🧹 Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/share/dotnet
+          docker system prune -af
+          docker volume prune -f
+
       - name: 🏗️ build and push
         uses: docker/build-push-action@v6
         with:
           build-args: ${{ inputs.args }}
           cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max,size=2GB
           # cache-from: type=registry,ref=${{ inputs.registry }}/${{ inputs.reference }}:cache
           # cache-to: type=inline
           context: ${{ inputs.context }}
           file: ${{ inputs.file }}
           labels: ${{ steps.meta.outputs.labels }}
+          network: host
           platforms: ${{ inputs.platform }}
           provenance: false
           push: ${{ inputs.push }}
@@ -217,9 +233,6 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: 💽 Install Trivy
-        uses: aquasecurity/trivy-action@master
-
       - name: 🔑 login to docker hub
         uses: docker/login-action@v3
         with:
@@ -227,10 +240,15 @@ jobs:
           username: ${{ inputs.user }}
           password: ${{ secrets.password }}
 
+      - id: tag
+        name: 🏷️ determine image tag
+        run: |
+          echo "tag=$(echo '${{ needs.build.outputs.tag }}' | head -n 1)" >> $GITHUB_OUTPUT
+
       - name: 🕵 Run image scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ inputs.registry }}/${{ inputs.reference }}:${{ steps.tag.outputs.tag }}
+          image-ref: ${{ steps.tag.outputs.tag }}
           format: table
           exit-code: 1
           vuln-type: 'os,library'
