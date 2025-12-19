@@ -64,15 +64,12 @@ on:
       token:
         description: 'GitHub token in case the image wants it'
         required: false
-      snyk:
-        description: 'Snyk token for vulnerability scanning'
-        required: false
       docker:
         description: 'Docker password for Docker Scout'
         required: false
 
 jobs:
-  docker:
+  build:
     name: 🏗️ build and publish image
     outputs:
       image: ${{ steps.meta.outputs.labels }}
@@ -120,7 +117,9 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             ${{ inputs.tag && format('type=raw,value={0}', inputs.tag) || '' }}
-            type=raw,value=cache
+
+      - run: |
+          echo "Building with tags: ${{ steps.meta.outputs.tags }}"
 
       - name: 🧱 set up qemu
         uses: docker/setup-qemu-action@v3
@@ -169,7 +168,7 @@ jobs:
 
   # scount:
   #   runs-on: ubuntu-latest
-  #   needs: docker
+  #   needs: build
   #   steps:
   #     - name: Authenticate to Docker
   #       if: ${{ env.DOCKER_TOKEN != '' }}
@@ -212,31 +211,26 @@ jobs:
   #       env:
   #         DOCKER_TOKEN: ${{ secrets.docker }}
 
-  security:
+  scan:
+    name: security scan
     runs-on: ubuntu-latest
-    needs: docker
-    if: ${{ inputs.push && inputs.registry == 'ghcr.io' }}
-    name: 🔍 check image for vulnerabilities
+    needs: build
     steps:
-      - name: 🛎️ checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Install Trivy
+        uses: aquasecurity/trivy-action@master
 
-      - name: 🕵 Run Snyk to check Docker image for vulnerabilities
-        if: ${{ env.SNYK_TOKEN != '' }}
-        # continue-on-error: true
-        uses: snyk/actions/docker@master
-        env:
-          SNYK_TOKEN: ${{ secrets.snyk }}
+      - name: 🔑 login to docker hub
+        uses: docker/login-action@v3
         with:
-          image: ${{ inputs.registry }}/${{ inputs.reference }}
-          args: --file=${{ inputs.file }}
+          registry: ${{ inputs.registry }}
+          username: ${{ inputs.user }}
+          password: ${{ secrets.password }}
 
-      - name: 💾 Upload result to GitHub Code Scanning
-        if: ${{ env.SNYK_TOKEN != '' }}
-        uses: github/codeql-action/upload-sarif@v3
+      - name: Scan image
+        uses: aquasecurity/trivy-action@master
         with:
-          sarif_file: snyk.sarif
-        env:
-          SNYK_TOKEN: ${{ secrets.snyk }}
+          image-ref: ${{ inputs.registry }}/${{ inputs.reference }}:${{ steps.tag.outputs.tag }}
+          format: table
+          exit-code: 1
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
