@@ -32,12 +32,12 @@ on:
         description: 'Platform(s) to build for'
         required: false
         type: string
-# Supported platforms:
-#   - linux/amd64
-#   - linux/arm/v7
-#   - linux/arm64/v8
-#   - linux/ppc64le
-#   - linux/s390x
+        # Supported platforms:
+        #   - linux/amd64
+        #   - linux/arm/v7
+        #   - linux/arm64/v8
+        #   - linux/ppc64le
+        #   - linux/s390x
       push:
         default: true
         description: 'Push to registry'
@@ -75,6 +75,7 @@ jobs:
       image: ${{ steps.meta.outputs.labels }}
       tag: ${{ steps.meta.outputs.tags }}
     runs-on: ubuntu-latest
+
     steps:
       - name: 🛎️ checkout code
         uses: actions/checkout@v4
@@ -91,7 +92,15 @@ jobs:
           remove-haskell: true
           remove-codeql: true
 
-      - name: 🔑 login to docker hub
+      - name: 🧹 Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/share/dotnet
+          docker system prune -af
+          docker volume prune -f
+
+      - name: 🔑 login to docker registry
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.registry }}
@@ -102,10 +111,8 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          # list of Docker images to use as base name for tags
           images: |
             ${{ inputs.registry }}/${{ inputs.reference }}
-          # list of labels to apply to the image
           labels: |
             org.opencontainers.image.authors=${{ inputs.user }}
             org.opencontainers.image.created=${{ github.event.repository.created_at }}
@@ -117,7 +124,6 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.url=https://github.com/${{ github.repository }}
             org.opencontainers.image.vendor=GitHub Actions
-          # generate Docker tags based on the following events/attributes
           tags: |
             type=schedule
             type=ref,event=branch
@@ -131,51 +137,45 @@ jobs:
       - name: 🧱 set up qemu
         uses: docker/setup-qemu-action@v3
 
-      - name: 🧱 set up docker buildx
-        uses: docker/setup-buildx-action@v3
-
-      - uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-docker-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-docker-
-
-      - name: 🧹 Free disk space
+      - name: 🧹 Free Docker space before buildx
         run: |
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/share/dotnet
           docker system prune -af
           docker volume prune -f
+
+      - env:
+          BUILDX_BUILDER: n8g-image-builder
+        name: 🧱 set up docker buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          install: false
+          driver-opts: |
+            network=host
+
+      - name: 🧱 configure buildx cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
 
       - name: 🏗️ build and push
         uses: docker/build-push-action@v6
         with:
           build-args: ${{ inputs.args }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max,size=2GB
-          # cache-from: type=registry,ref=${{ inputs.registry }}/${{ inputs.reference }}:cache
-          # cache-to: type=inline
           context: ${{ inputs.context }}
           file: ${{ inputs.file }}
           labels: ${{ steps.meta.outputs.labels }}
-          network: host
           platforms: ${{ inputs.platform }}
-          provenance: false
           push: ${{ inputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          provenance: false
           sbom: false
+          network: host
           secrets: |
             GH_TOKEN=${{ secrets.token }}
-          tags: ${{ steps.meta.outputs.tags }}
-
-      # - name: 🏷️ tag release image
-      #   if: ${{ env.BRANCH_NAME == 'release' }}
-      #   run: docker tag ghcr.io/${{ github.repository }}:${{ env.BRANCH_NAME }} ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.tag }}
-
-      # - name: 🏷️ tag latest image
-      #   if: ${{ env.BRANCH_NAME == 'main' }}
-      #   run: docker tag ghcr.io/${{ github.repository }}:${{ env.BRANCH_NAME }} ghcr.io/${{ github.repository }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - run: |
           rsync -a --remove-source-files /tmp/.buildx-cache-new/ /tmp/.buildx-cache/
@@ -233,7 +233,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: 🔑 login to docker hub
+      - name: 🔑 login to docker registry
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.registry }}
@@ -252,4 +252,4 @@ jobs:
           format: table
           exit-code: 1
           vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
+          severity: 'CRITICAL,HIGH,MEDIUM'
