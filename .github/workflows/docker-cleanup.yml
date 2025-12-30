@@ -1,4 +1,5 @@
 name: cleanup old GHCR images
+
 on:
   workflow_call:
     inputs:

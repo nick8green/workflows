@@ -33,13 +33,12 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ steps.get-version.outputs.version }}
-        registry-url: ${{ inputs.registry }}
 
     - name: 🔓 auth with npm
       if: ${{ inputs.token != '' }}
       shell: bash
       run: |
-        echo "@nick8green:registry=https://npm.pkg.github.com" >> ~/.npmrc
+        echo "@nick8green:registry=https://${{ inputs.registry }}/" >> $HOME/.npmrc
         echo "//${{ inputs.registry }}/:_authToken=${{ inputs.token }}" >> $HOME/.npmrc
         echo "always-auth=true" >> $HOME/.npmrc
 
@@ -71,14 +70,11 @@ runs:
       uses: actions/cache@v3
       with:
         path: |
-          ~/.npm
-          ~/.yarn
-          ~/.pnpm-store
+          $HOME/.npm
+          $HOME/.yarn
+          $HOME/.pnpm-store
           node_modules
         key: ${{ runner.os }}-deps-${{ steps.detect-pm.outputs.manager }}-${{ hashFiles('**/pnpm-lock.yaml', '**/yarn.lock', '**/package-lock.json') }}
-
-    - run: echo "${{ inputs.registry }}/:_authToken=${{ inputs.token }}" >> .npmrc
-      shell: bash
 
     - name: 📥 install dependencies
       shell: bash

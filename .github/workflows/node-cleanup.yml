@@ -1,0 +1,100 @@
+name: cleanup old npm packages
+
+on:
+  workflow_call:
+    inputs:
+      days:
+        default: '30'
+        description: 'Days to keep versions'
+        required: false
+        type: string
+      pattern:
+        default: ''
+        description: 'Optional pattern to match package names'
+        required: false
+        type: string
+    secrets:
+      token:
+        required: true
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.token }}
+      OWNER: ${{ github.actor }}
+      KEEP_DAYS: ${{ inputs.days }}
+      PATTERN: ${{ inputs.pattern }}
+
+    steps:
+      - name: Cleanup npm packages
+        run: |
+          # Determine if user or org
+          OWNER_TYPE=$(gh api "users/$OWNER" -q '.type' || echo "User")
+
+          if [[ "$OWNER_TYPE" == "Organization" ]]; then
+            PACKAGE_LIST_ENDPOINT="orgs/$OWNER/packages?package_type=npm"
+            PACKAGE_VERSIONS_ENDPOINT="orgs/$OWNER/packages/npm"
+          else
+            PACKAGE_LIST_ENDPOINT="users/$OWNER/packages?package_type=npm"
+            PACKAGE_VERSIONS_ENDPOINT="users/$OWNER/packages/npm"
+          fi
+
+          echo "🔍 Fetching npm packages for $OWNER ($OWNER_TYPE)"
+
+          ALL_PACKAGES=$(gh api "$PACKAGE_LIST_ENDPOINT" -q '.[].name')
+
+          if [[ -n "$PATTERN" ]]; then
+            PACKAGES=$(echo "$ALL_PACKAGES" | grep "$PATTERN" || true)
+          else
+            PACKAGES="$ALL_PACKAGES"
+          fi
+
+          if [[ -z "$PACKAGES" ]]; then
+            echo "No npm packages found matching pattern '$PATTERN'"
+            exit 0
+          fi
+
+          cutoff_date=$(date -d "-$KEEP_DAYS days" +%s)
+
+          for PACKAGE_NAME in $PACKAGES; do
+            echo "🧼 Checking npm package: $PACKAGE_NAME"
+
+            ENCODED=$(jq -rn --arg pkg "$PACKAGE_NAME" '$pkg|@uri')
+
+            VERSIONS=$(gh api "$PACKAGE_VERSIONS_ENDPOINT/$ENCODED/versions" --paginate \
+              -q '.[] | {id: .id, name: .name, created: .created_at}')
+
+            if [[ -z "$VERSIONS" ]]; then
+              echo "No versions found for $PACKAGE_NAME"
+              continue
+            fi
+
+            echo "$VERSIONS" | jq -c '.' | while read -r version; do
+              ID=$(echo "$version" | jq -r '.id')
+              NAME=$(echo "$version" | jq -r '.name')
+              CREATED=$(date --date="$(echo "$version" | jq -r '.created')" +%s)
+
+              should_delete=true
+
+              # Skip semver versions
+              if [[ "$NAME" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "✅ Keeping semver version $NAME"
+                should_delete=false
+              fi
+
+              # Skip latest
+              if [[ "$NAME" == "latest" ]]; then
+                echo "↩️ Skipping latest"
+                should_delete=false
+              fi
+
+              if $should_delete && [[ "$CREATED" -lt "$cutoff_date" ]]; then
+                echo "🗑️ Deleting version $NAME (ID: $ID)"
+                gh api --method DELETE "$PACKAGE_VERSIONS_ENDPOINT/$ENCODED/versions/$ID" || \
+                  echo "⚠️ Failed to delete version $ID"
+              else
+                echo "📦 Keeping version $NAME"
+              fi
+            done
+          done
