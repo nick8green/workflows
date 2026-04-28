@@ -74,9 +74,12 @@ runs:
           $HOME/.yarn
           $HOME/.pnpm-store
           node_modules
+          packages/*/node_modules
         key: ${{ runner.os }}-deps-${{ steps.detect-pm.outputs.manager }}-${{ hashFiles('**/pnpm-lock.yaml', '**/yarn.lock', '**/package-lock.json') }}
 
     - name: 📥 install dependencies
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
       shell: bash
       if: steps.cache-deps.outputs.cache-hit != 'true'
       run: |
