@@ -34,14 +34,6 @@ runs:
       with:
         node-version: ${{ steps.get-version.outputs.version }}
 
-    - name: 🔓 auth with npm
-      if: ${{ inputs.token != '' }}
-      shell: bash
-      run: |
-        echo "@nick8green:registry=https://${{ inputs.registry }}/" >> $HOME/.npmrc
-        echo "//${{ inputs.registry }}/:_authToken=${{ inputs.token }}" >> $HOME/.npmrc
-        echo "always-auth=true" >> $HOME/.npmrc
-
     - name: 🧰 detect package manager
       id: detect-pm
       shell: bash
@@ -65,6 +57,22 @@ runs:
       with:
         version: latest
 
+    - name: 🔓 auth with yarn
+      if: steps.detect-pm.outputs.manager == 'yarn'
+      shell: bash
+      env:
+        NODE_AUTH_TOKEN: ${{ inputs.token }}
+      run: |
+        yarn config set 'npmScopes["nick8green"].npmAuthToken' "${NODE_AUTH_TOKEN}"
+
+    - name: 🔓 auth with npm
+      if: ${{ steps.detect-pm.outputs.manager == 'npm' && inputs.token != '' }}
+      shell: bash
+      run: |
+        yarn config set 'npmScopes["nick8green"].npmAuthToken' "${{ inputs.token }}"
+        echo "@nick8green:registry=https://${{ inputs.registry }}/" >> $HOME/.npmrc
+        echo "//${{ inputs.registry }}/:_authToken=${{ inputs.token }}" >> $HOME/.npmrc
+
     - name: 📦 cache dependencies
       id: cache-deps
       uses: actions/cache@v3
@@ -80,6 +88,7 @@ runs:
     - name: 📥 install dependencies
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
+        NODE_AUTH_TOKEN: ${{ inputs.token }}
       shell: bash
       if: steps.cache-deps.outputs.cache-hit != 'true'
       run: |
@@ -88,7 +97,7 @@ runs:
             pnpm install --frozen-lockfile
             ;;
           yarn)
-            yarn install --frozen-lockfile
+            NODE_AUTH_TOKEN=${{ inputs.token }} yarn install --immutable
             ;;
           npm)
             npm ci
