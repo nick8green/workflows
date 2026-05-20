@@ -1,105 +1,154 @@
 name: "setup node.js"
-description: "Sets up Node.js for the workflow and caches dependencies for npm, yarn, or pnpm"
+description: "Sets up Node.js, detects the package manager, authenticates, caches, and installs dependencies"
 
 inputs:
   version:
-    description: "Version of Node.js to use"
+    description: "Version of Node.js to use (falls back to .nvmrc if not provided, and defaults to 24.x if neither is set)"
     required: false
   registry:
     default: "npm.pkg.github.com"
-    description: "URL of the npm registry to use"
+    description: "Hostname of the npm registry to use (do not include the protocol)"
     required: false
-  token:
-    description: "GitHub token with access to the npm registry"
-    required: true
 
 runs:
   using: "composite"
   steps:
-    - name: 🧮 get version
-      id: get-version
-      shell: bash
+    # -- 1. Resolve Node.js version -----------------------------------------------
+    - id: get-version
+      name: 🧮 get version
       run: |
         if [ -f ".nvmrc" ]; then
           NODE_VERSION=$(cat .nvmrc | sed -E 's/^v?//g;t')
         elif [ -n "${{ inputs.version }}" ]; then
           NODE_VERSION="${{ inputs.version }}"
         else
-          NODE_VERSION="22.x"
+          NODE_VERSION="24.x"
         fi
         echo "version=$NODE_VERSION" >> "$GITHUB_OUTPUT"
-
-    - name: ⚙️ setup node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ steps.get-version.outputs.version }}
-
-    - name: 🧰 detect package manager
-      id: detect-pm
       shell: bash
+
+    # -- 2. Detect package manager ------------------------------------------------
+    - id: detect-pm
+      name: 💼 detect package manager
       run: |
         if [ -f "pnpm-lock.yaml" ]; then
           PM=pnpm
         elif [ -f "yarn.lock" ]; then
           PM=yarn
-          corepack enable
+          if [ -f ".yarnrc.yml" ] || \
+             ([ -f "package.json" ] && grep -q '"packageManager".*yarn@[^1]' package.json 2>/dev/null); then
+            echo "yarn-berry=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "yarn-berry=false" >> "$GITHUB_OUTPUT"
+          fi
         elif [ -f "package-lock.json" ]; then
           PM=npm
         else
-          echo "No known lockfile found. Cannot determine package manager." >&2
+          echo "::error:: No known lockfile found. Cannot determine package manager." >&2
           exit 1
         fi
         echo "manager=$PM" >> "$GITHUB_OUTPUT"
+      shell: bash
 
-    - name: 🛠 setup pnpm
-      if: steps.detect-pm.outputs.manager == 'pnpm'
-      uses: pnpm/action-setup@v2
+    # -- 3. Enable corepack if using Yarn Berry or pnpm----------------------------
+    #    Corepack reads `packageManager` from package.json and installs the
+    #    exact version — no need for a separate pnpm/action-setup step.
+    - if: |
+        steps.detect-pm.outputs.manager == 'pnpm' || 
+        steps.detect-pm.outputs.yarn-berry == 'true'
+      name: ⚙️ enable corepack
+      run: corepack enable
+      shell: bash
+
+    # -- 4. Install pnpm via dedicated action (classic fallback) ------------------
+    #    Only used when Corepack is NOT handling it (i.e. no `packageManager`
+    #    field). Safe to remove if all your projects declare `packageManager`.
+    - if: |
+        steps.detect-pm.outputs.manager == 'pnpm' && 
+        steps.detect-pm.outputs.yarn-berry != 'true'
+      name: 🛠️ pnpm setup (action fallback)
+      uses: pnpm/action-setup@v4
       with:
         version: latest
 
-    - name: 🔓 auth with yarn
-      if: steps.detect-pm.outputs.manager == 'yarn'
-      shell: bash
-      env:
-        NODE_AUTH_TOKEN: ${{ inputs.token }}
+    # ── 4b. Configure Yarn Berry cache directory ───────────────────────────────
+    - id: yarn-berry-cache
+      if: steps.detect-pm.outputs.yarn-berry == 'true'
+      name: 🫐 configure yarn berry cache
       run: |
-        yarn config set 'npmScopes["nick8green"].npmAuthToken' "${NODE_AUTH_TOKEN}"
-
-    - name: 🔓 auth with npm
-      if: ${{ steps.detect-pm.outputs.manager == 'npm' && inputs.token != '' }}
+        # Ensure the cache folder is set to a known, consistent path
+        yarn config set cacheFolder ~/.yarn/berry/cache
+        CACHE_DIR=$(yarn config get cacheFolder)
+        echo "cache-dir=$CACHE_DIR" >> "$GITHUB_OUTPUT"
       shell: bash
-      run: |
-        yarn config set 'npmScopes["nick8green"].npmAuthToken' "${{ inputs.token }}"
-        echo "@nick8green:registry=https://${{ inputs.registry }}/" >> $HOME/.npmrc
-        echo "//${{ inputs.registry }}/:_authToken=${{ inputs.token }}" >> $HOME/.npmrc
 
-    - name: 📦 cache dependencies
-      id: cache-deps
-      uses: actions/cache@v3
+    # -- 5. Setup Node.js with the resolved version -------------------------------
+    #    Comes after corepack and pnpm setup to ensure the correct Node version is
+    #    used for package manager installation.
+    - name: ⚙️ setup node.js
+      uses: actions/setup-node@v4
       with:
+        node-version: ${{ steps.get-version.outputs.version }}
+
+    # -- 6. Authenticate with the registry ----------------------------------------
+    #    TOKEN is sourced from the environment. Callers should set NODE_AUTH_TOKEN
+    #    in their jobs `env:` block.
+    #
+    #    Yarn Berry: reads the NODE_AUTH_TOKEN directly from .yarnrc via the
+    #    ${NODE_AUTH_TOKEN} placeholder. There is nothing extra required.
+    #
+    #    Yarn Classic: needs to set the auth token in .yarnrc via `yarn config set`
+    #    command.
+    #
+    #    npm: needs to set the auth token in .npmrc.
+    - if: steps.detect-pm.outputs.manager == 'npm'
+      name: 🔓 authenticate with npm
+      run: |
+        echo "@nick8green:registry=https://${{ inputs.registry }}/" >> $HOME/.npmrc
+        echo "//${{ inputs.registry }}/:_authToken=${NODE_AUTH_TOKEN}" >> $HOME/.npmrc
+      shell: bash
+
+    - if: |
+        steps.detect-pm.outputs.manager == 'yarn' && 
+        steps.detect-pm.outputs.yarn-berry == 'false'
+      name: 🔓 authenticate with yarn
+      run: yarn set config npmScopes.nick8green.npmAuthToken "${NODE_AUTH_TOKEN}"
+      shell: bash
+
+    # -- 7. Cache dependencies ----------------------------------------------------
+    - id: cache-deps
+      name: 📦 cache dependencies
+      uses: actions/cache@v4
+      with:
+        key: ${{ runner.os }}-deps-${{ steps.detect-pm.outputs.manager }}-${{ hashFiles('**/pnpm-lock.yaml', '**/yarn.lock', '**/package-lock.json') }}
         path: |
           $HOME/.npm
+          ${{ steps.yarn-berry-cache.outputs.cache-dir || '$HOME/.yarn/berry/cache' }}
           $HOME/.yarn
           $HOME/.pnpm-store
           node_modules
           packages/*/node_modules
-        key: ${{ runner.os }}-deps-${{ steps.detect-pm.outputs.manager }}-${{ hashFiles('**/pnpm-lock.yaml', '**/yarn.lock', '**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-deps-${{ steps.detect-pm.outputs.manager }}-
 
-    - name: 📥 install dependencies
-      env:
-        GITHUB_TOKEN: ${{ inputs.token }}
-        NODE_AUTH_TOKEN: ${{ inputs.token }}
-      shell: bash
-      if: steps.cache-deps.outputs.cache-hit != 'true'
+    # -- 8. Install dependencies --------------------------------------------------
+    - if: steps.cache-deps.outputs.cache-hit != 'true'
+      name: 📥 install dependencies
       run: |
         case "${{ steps.detect-pm.outputs.manager }}" in
           pnpm)
             pnpm install --frozen-lockfile
             ;;
           yarn)
-            NODE_AUTH_TOKEN=${{ inputs.token }} yarn install --immutable
+            if [ "${{ steps.detect-pm.outputs.yarn-berry }}" = "true" ]; then
+              # Berry picks up NODE_AUTH_TOKEN automatically via .yarnrc.yml
+              yarn install --immutable
+            else
+              yarn install --frozen-lockfile
+            fi
             ;;
           npm)
             npm ci
             ;;
         esac
+      shell: bash
