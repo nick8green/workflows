@@ -3,14 +3,14 @@ name: run unit tests
 on:
   workflow_call:
     secrets:
-      GH_TOKEN:
+      token:
         description: 'GitHub token with access to the npm registry'
         required: true
 
 jobs:
-  deploy:
+  test:
     env:
-      NODE_AUTH_TOKEN: ${{ secrets.GH_TOKEN }}
+      NODE_AUTH_TOKEN: ${{ secrets.token }}
     name: ⚗️ run unit tests
     runs-on: ubuntu-latest
     steps:

@@ -71,6 +71,14 @@ runs:
       with:
         version: latest
 
+    # -- 5. Setup Node.js with the resolved version -------------------------------
+    #    Comes after corepack and pnpm setup to ensure the correct Node version is
+    #    used for package manager installation.
+    - name: ⚙️ setup node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ steps.get-version.outputs.version }}
+
     # ── 4b. Configure Yarn Berry cache directory ───────────────────────────────
     - id: yarn-berry-cache
       if: steps.detect-pm.outputs.yarn-berry == 'true'
@@ -81,14 +89,6 @@ runs:
         CACHE_DIR=$(yarn config get cacheFolder)
         echo "cache-dir=$CACHE_DIR" >> "$GITHUB_OUTPUT"
       shell: bash
-
-    # -- 5. Setup Node.js with the resolved version -------------------------------
-    #    Comes after corepack and pnpm setup to ensure the correct Node version is
-    #    used for package manager installation.
-    - name: ⚙️ setup node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ steps.get-version.outputs.version }}
 
     # -- 6. Authenticate with the registry ----------------------------------------
     #    TOKEN is sourced from the environment. Callers should set NODE_AUTH_TOKEN
@@ -104,8 +104,8 @@ runs:
     - if: steps.detect-pm.outputs.manager == 'npm'
       name: 🔓 authenticate with npm
       run: |
-        echo "@nick8green:registry=https://${{ inputs.registry }}/" >> $HOME/.npmrc
-        echo "//${{ inputs.registry }}/:_authToken=${NODE_AUTH_TOKEN}" >> $HOME/.npmrc
+        echo "@nick8green:registry=https://${{ inputs.registry }}/" >> ~/.npmrc
+        echo "//${{ inputs.registry }}/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
       shell: bash
 
     - if: |
@@ -115,6 +115,15 @@ runs:
       run: yarn set config npmScopes.nick8green.npmAuthToken "${NODE_AUTH_TOKEN}"
       shell: bash
 
+    # After your "setup node.js" step, add:
+    - if: steps.detect-pm.outputs.yarn-berry == 'true'
+      name: 🔓 authenticate with yarn berry
+      run: |
+        yarn config set npmScopes.nick8green.npmAuthToken "${NODE_AUTH_TOKEN}"
+        yarn config set npmScopes.nick8green.npmAlwaysAuth true
+        yarn config set npmScopes.nick8green.npmRegistryServer "https://${{ inputs.registry }}"
+      shell: bash
+
     # -- 7. Cache dependencies ----------------------------------------------------
     - id: cache-deps
       name: 📦 cache dependencies
@@ -122,10 +131,10 @@ runs:
       with:
         key: ${{ runner.os }}-deps-${{ steps.detect-pm.outputs.manager }}-${{ hashFiles('**/pnpm-lock.yaml', '**/yarn.lock', '**/package-lock.json') }}
         path: |
-          $HOME/.npm
-          ${{ steps.yarn-berry-cache.outputs.cache-dir || '$HOME/.yarn/berry/cache' }}
-          $HOME/.yarn
-          $HOME/.pnpm-store
+          ~/.npm
+          ${{ steps.yarn-berry-cache.outputs.cache-dir || '~/.yarn/berry/cache' }}
+          ~/.yarn
+          ~/.pnpm-store
           node_modules
           packages/*/node_modules
         restore-keys: |
