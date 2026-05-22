@@ -17,38 +17,17 @@ jobs:
       - name: 🛎️ checkout code
         uses: actions/checkout@v4
 
-      - name: 🧱 setup workspace
+      - id: setup
+        name: 🧱 setup workspace
         uses: nick8green/workflows/actions/node/setup@node-setup
-
-      - name: 🧰 detect package manager
-        id: detect-pm
-        shell: bash
-        run: |
-          if [ -f "pnpm-lock.yaml" ]; then
-            PM=pnpm
-          elif [ -f "yarn.lock" ]; then
-            PM=yarn
-          elif [ -f "package-lock.json" ]; then
-            PM=npm
-          else
-            echo "No known lockfile found. Cannot determine package manager." >&2
-            exit 1
-          fi
-          echo "manager=$PM" >> "$GITHUB_OUTPUT"
 
       - name: 🛠️ build package
         shell: bash
         run: |
-          case "${{ steps.detect-pm.outputs.manager }}" in
-            pnpm)
-              pnpm build
-              ;;
-            yarn)
-              yarn build
-              ;;
-            npm)
-              npm run build
-              ;;
+          case "${{ steps.setup.outputs.package-manager }}" in
+            pnpm) pnpm build ;;
+            yarn) yarn build ;;
+            npm)  npm run build ;;
           esac
 
       - name: 🗂️ archieve results

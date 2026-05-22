@@ -10,6 +10,14 @@ inputs:
     description: "Hostname of the npm registry to use (do not include the protocol)"
     required: false
 
+outputs:
+  package-manager:
+    description: "Detected package manager (npm, yarn, pnpm)"
+    value: ${{ steps.detect-pm.outputs.manager }}
+  yarn-berry:
+    description: "Whether the project uses Yarn Berry (true/false)"
+    value: ${{ steps.detect-pm.outputs.yarn-berry }}
+
 runs:
   using: "composite"
   steps:
