@@ -113,7 +113,7 @@ jobs:
             org.opencontainers.image.title=${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.url=https://github.com/${{ github.repository }}
-            org.opencontainers.image.vendor=GitHub Actions
+            org.opencontainers.image.vendor=nick8green
           tags: |
             type=schedule
             type=ref,event=branch
