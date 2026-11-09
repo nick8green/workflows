@@ -239,6 +239,22 @@ jobs:
         env:
           TRIVY_DISABLE_VEX_NOTICE: 'true'
 
+      - uses: anchore/scan-action@v7
+        with:
+          image: ${{ steps.tag.outputs.tag }}
+          severity-cutoff: high
+
+      - uses: anchore/scan-action@v7
+        id: scan
+        with:
+          image: ${{ steps.tag.outputs.tag }}
+          fail-build: false
+
+      - name: upload Anchore scan SARIF report
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+
       - continue-on-error: true
         name: 🕵 Run image scan lower level scan
         uses: aquasecurity/trivy-action@v0.36.0
