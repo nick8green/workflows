@@ -73,7 +73,8 @@ jobs:
     name: 🏗️ build and publish image
     outputs:
       image: ${{ steps.meta.outputs.labels }}
-      tag: ${{ steps.meta.outputs.tags }}
+      tags: ${{ steps.meta.outputs.tags }}
+      tag: ${{ steps.tag.outputs.tag }}
     runs-on: ubuntu-latest
 
     steps:
@@ -163,6 +164,11 @@ jobs:
             GH_TOKEN=${{ secrets.token }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - id: tag
+        name: 🏷️ determine image tag
+        run: |
+          echo "tag=$(echo '${{ steps.meta.outputs.tags }}' | head -n 1)" >> $GITHUB_OUTPUT
     timeout-minutes: ${{ inputs.timeout }}
 
   # scount:
@@ -210,9 +216,51 @@ jobs:
   #       env:
   #         DOCKER_TOKEN: ${{ secrets.docker }}
 
-  scan:
-    if: ${{ inputs.push && inputs.registry == 'ghcr.io' }}
-    name: 🔍 check image for vulnerabilities
+
+  scout:
+    if: ${{ inputs.push }}
+    name: 🔍 docker scout scan for vulnerabilities
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Analyze for critical and high CVEs
+        id: docker-scout-cves
+        uses: docker/scout-action@v1
+        with:
+          command: cves,recommendations,compare
+          to-latest: true
+          image: ${{ needs.build.outputs.tag }}
+          summary: true
+          only-severities: critical,high
+          write-comment: true
+          github-token: ${{ secrets.password }}
+          registry-user: ${{ inputs.user }}
+          registry-password: ${{ secrets.password }}
+
+      - continue-on-error: true
+        name: Analyze for all CVEs
+        uses: docker/scout-action@v1
+        with:
+          command: cves,recommendations,compare
+          to-latest: true
+          image: ${{ needs.build.outputs.tag }}
+          sarif-file: sarif.output.json
+          summary: true
+          only-severities: medium,low,unknown
+          write-comment: true
+          github-token: ${{ secrets.password }}
+          registry-user: ${{ inputs.user }}
+          registry-password: ${{ secrets.password }}
+
+      - name: Upload SARIF result
+        id: upload-sarif
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: sarif.output.json
+
+  trivy:
+    if: ${{ inputs.push }}
+    name: 🔍 trivy scan for vulnerabilities
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -223,15 +271,10 @@ jobs:
           username: ${{ inputs.user }}
           password: ${{ secrets.password }}
 
-      - id: tag
-        name: 🏷️ determine image tag
-        run: |
-          echo "tag=$(echo '${{ needs.build.outputs.tag }}' | head -n 1)" >> $GITHUB_OUTPUT
-
       - name: 🕵 Run critical and high image scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ steps.tag.outputs.tag }}
+          image-ref: ${{ needs.build.outputs.tag }}
           format: table
           exit-code: 1
           vuln-type: 'os,library'
@@ -239,28 +282,42 @@ jobs:
         env:
           TRIVY_DISABLE_VEX_NOTICE: 'true'
 
+      - continue-on-error: true
+        name: 🕵 Run image scan lower level scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ needs.build.outputs.tag }}
+          format: table
+          exit-code: 1
+          vuln-type: 'os,library'
+          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+
+  grype:
+    if: ${{ inputs.push }}
+    name: 🔍 grype scan for vulnerabilities
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔑 login to docker registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ inputs.user }}
+          password: ${{ secrets.password }}
+
       - uses: anchore/scan-action@v7
         with:
-          image: ${{ steps.tag.outputs.tag }}
+          image: ${{ needs.build.outputs.tag }}
           severity-cutoff: high
 
       - uses: anchore/scan-action@v7
         id: scan
         with:
-          image: ${{ steps.tag.outputs.tag }}
+          image: ${{ needs.build.outputs.tag }}
+          severity-cutoff: low
           fail-build: false
 
       - name: upload Anchore scan SARIF report
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
-
-      - continue-on-error: true
-        name: 🕵 Run image scan lower level scan
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ${{ steps.tag.outputs.tag }}
-          format: table
-          exit-code: 1
-          vuln-type: 'os,library'
-          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
