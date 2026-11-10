@@ -205,8 +205,8 @@ jobs:
         with:
           command: cves,recommendations
           image: ${{ needs.build.outputs.tag }}
-          dockerhub-user: ${{ inputs.user }}
-          dockerhub-password: ${{ secrets.docker }}
+          registry-user: ${{ inputs.user }}
+          registry-password: ${{ secrets.password }}
           only-severities: critical,high
           sarif-file: scout.sarif
           summary: true
